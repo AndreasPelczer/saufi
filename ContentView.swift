@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var idleTimer: Task<Void, Never>?
     @State private var lastInteractionTime = Date()
     @State private var toniMood: String = "🍺"
+    @State private var typedText: String = ""
+    @FocusState private var isTextFieldFocused: Bool
     @AppStorage("openai_key") private var openAIKey: String = ""
     @AppStorage("gemini_key") private var geminiKey: String = ""
 
@@ -70,9 +72,14 @@ struct ContentView: View {
 
                 // Hauptbutton
                 micButton
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 12)
 
-                // Status
+                // Text-Input (Alternative zum Mikrofon)
+                textInputBar
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 12)
+
+                // Status + Fehler
                 statusBar
                     .padding(.bottom, 8)
             }
@@ -309,17 +316,65 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.3), value: speechListener.isListening)
     }
 
+    // MARK: - Text Input
+
+    private var textInputBar: some View {
+        HStack(spacing: 8) {
+            TextField("Schreib Toni was...", text: $typedText)
+                .font(.system(size: 14, design: .rounded))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(bgWarm)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(amber.opacity(0.2), lineWidth: 1)
+                        )
+                )
+                .foregroundStyle(.white)
+                .focused($isTextFieldFocused)
+                .submitLabel(.send)
+                .onSubmit {
+                    sendTypedText()
+                }
+
+            Button {
+                sendTypedText()
+            } label: {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(typedText.isEmpty ? amber.opacity(0.3) : amber)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(bgWarm)
+                    )
+            }
+            .disabled(typedText.trimmingCharacters(in: .whitespaces).isEmpty || isProcessing)
+        }
+    }
+
     // MARK: - Status Bar
 
     private var statusBar: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 6, height: 6)
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
 
-            Text(statusText)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.4))
+                Text(statusText)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+
+            if let error = speechListener.lastError {
+                Text(error)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.red.opacity(0.6))
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -458,6 +513,14 @@ struct ContentView: View {
             speechListener.startListening(seconds: 5.0)
             resetIdleTimer()
         }
+    }
+
+    private func sendTypedText() {
+        let text = typedText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        typedText = ""
+        isTextFieldFocused = false
+        handleTranscript(text)
     }
 
     private func handleTranscript(_ text: String) {

@@ -66,7 +66,7 @@ final class SpeechCommandListener: ObservableObject {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.record, mode: .measurement, options: [.duckOthers])
+            try session.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .duckOthers])
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             lastError = "AVAudioSession Fehler: \(error.localizedDescription)"
