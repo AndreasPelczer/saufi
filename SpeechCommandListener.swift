@@ -35,9 +35,14 @@ final class SpeechCommandListener: ObservableObject {
             }
         }
 
-        let micOK = await withCheckedContinuation { cont in
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                cont.resume(returning: granted)
+        let micOK: Bool
+        if #available(iOS 17.0, *) {
+            micOK = await AVAudioApplication.requestRecordPermission()
+        } else {
+            micOK = await withCheckedContinuation { cont in
+                AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                    cont.resume(returning: granted)
+                }
             }
         }
 
