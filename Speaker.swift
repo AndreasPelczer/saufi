@@ -160,7 +160,6 @@ final class Speaker: NSObject, ObservableObject {
 
     private func speakWithAppleEnhanced(text: String) -> Bool {
         // Enhanced Voices (iOS 16+) – müssen auf dem Gerät runtergeladen sein
-        // Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen → Deutsch
         let enhancedIDs = [
             "com.apple.voice.enhanced.de-DE.Anna",
             "com.apple.voice.premium.de-DE.Anna",
@@ -170,6 +169,7 @@ final class Speaker: NSObject, ObservableObject {
 
         for voiceID in enhancedIDs {
             if let voice = AVSpeechSynthesisVoice(identifier: voiceID) {
+                do { try configureAudioSession() } catch { return false }
                 let utterance = makeUtterance(text: text)
                 utterance.voice = voice
                 synth.speak(utterance)
@@ -183,6 +183,9 @@ final class Speaker: NSObject, ObservableObject {
     // MARK: - Apple Fallback
 
     private func speakWithAppleFallback(text: String) {
+        do { try configureAudioSession() } catch {
+            print("Speaker: Audio Session Fehler: \(error)")
+        }
         let utterance = makeUtterance(text: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "de-DE")
         synth.speak(utterance)
