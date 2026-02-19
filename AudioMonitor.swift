@@ -17,9 +17,10 @@ final class AudioMonitor: ObservableObject {
     @Published var silenceDuration: TimeInterval = 0
 
     private var lastUpdate = Date()
+    private var isRunning = false
 
     func start() {
-        // Audio-Session konfigurieren (wichtig für echtes iPhone)
+        guard !isRunning else { return }
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers])
@@ -28,17 +29,21 @@ final class AudioMonitor: ObservableObject {
             print("AVAudioSession Fehler: \(error)")
         }
 
-        // Permission anfragen
-        session.requestRecordPermission { [weak self] granted in
-            guard let self = self else { return }
-            if granted {
-                DispatchQueue.main.async {
-                    self.startEngine()
-                }
-            } else {
-                print("Mikrofon-Zugriff verweigert.")
-            }
+        startEngine()
+    }
+
+    func pause() {
+        guard isRunning else { return }
+        if engine.isRunning {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
         }
+        isRunning = false
+        level = 0
+    }
+
+    func resume() {
+        start()
     }
 
     private func startEngine() {
@@ -52,6 +57,7 @@ final class AudioMonitor: ObservableObject {
 
         do {
             try engine.start()
+            isRunning = true
         } catch {
             print("AudioEngine Start fehlgeschlagen: \(error)")
         }

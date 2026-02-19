@@ -17,6 +17,8 @@ final class SpeechCommandListener: ObservableObject {
     @Published var isListening: Bool = false
     @Published var transcript: String = ""
     @Published var lastError: String?
+    /// Fires once with the final transcript when listening stops
+    @Published var finalTranscript: String = ""
 
     private let audioEngine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "de-DE"))
@@ -119,6 +121,8 @@ final class SpeechCommandListener: ObservableObject {
     }
 
     func stopListening() {
+        guard isListening else { return }
+
         if audioEngine.isRunning {
             audioEngine.stop()
             audioEngine.inputNode.removeTap(onBus: 0)
@@ -131,6 +135,12 @@ final class SpeechCommandListener: ObservableObject {
         task = nil
 
         isListening = false
+
+        // Publish the final transcript so observers can react
+        let captured = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !captured.isEmpty {
+            finalTranscript = captured
+        }
 
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)

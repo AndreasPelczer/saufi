@@ -73,7 +73,17 @@ struct ContentView: View {
             setupServices()
         }
         .onChange(of: speechListener.transcript) { _, newValue in
+            if speechListener.isListening && !newValue.isEmpty {
+                toniText = "🎤 \(newValue)"
+            }
+        }
+        .onChange(of: speechListener.finalTranscript) { _, newValue in
             handleTranscript(newValue)
+        }
+        .onChange(of: speechListener.isListening) { _, listening in
+            if !listening {
+                audioMonitor.resume()
+            }
         }
         .onChange(of: audioMonitor.level) { _, newValue in
             partyEngine.update(with: newValue)
@@ -404,14 +414,16 @@ struct ContentView: View {
     private func handleMicTap() {
         if speechListener.isListening {
             speechListener.stopListening()
+            audioMonitor.resume()
         } else {
             toniText = "Ich hör zu..."
+            audioMonitor.pause()
             speechListener.startListening(seconds: 5.0)
         }
     }
 
     private func handleTranscript(_ text: String) {
-        guard !text.isEmpty, !speechListener.isListening else { return }
+        guard !text.isEmpty else { return }
 
         isProcessing = true
         let level = partyEngine.partyLevel
