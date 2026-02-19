@@ -78,7 +78,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: speechListener.finalTranscript) { _, newValue in
-            handleTranscript(newValue)
+            if newValue == "__EMPTY__" {
+                toniText = "Ich hab nix verstanden. Versuch's nochmal! 🙉"
+            } else if !newValue.isEmpty {
+                handleTranscript(newValue)
+            }
         }
         .onChange(of: speechListener.isListening) { _, listening in
             if !listening {
@@ -425,6 +429,7 @@ struct ContentView: View {
     private func handleTranscript(_ text: String) {
         guard !text.isEmpty else { return }
 
+        print("[ContentView] handleTranscript: '\(text)'")
         isProcessing = true
         let level = partyEngine.partyLevel
 
@@ -436,12 +441,14 @@ struct ContentView: View {
                 let gemini = GeminiService(apiKey: geminiKey)
                 do {
                     response = try await gemini.generateResponse(command: text, partyLevel: level)
+                    print("[ContentView] Gemini response: '\(response)'")
                 } catch {
-                    // Fallback auf ToniBrain
+                    print("[ContentView] Gemini error: \(error) – Fallback auf ToniBrain")
                     response = toniBrain.respond(to: text, partyLevel: level)
                 }
             } else {
                 response = toniBrain.respond(to: text, partyLevel: level)
+                print("[ContentView] ToniBrain response: '\(response)'")
             }
 
             toniText = response

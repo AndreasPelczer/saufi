@@ -25,16 +25,16 @@ final class SpeechCommandListener: ObservableObject {
 
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var stopTimer: Task<Void, Never>?
+    private var finalResultTimer: Task<Void, Never>?
 
     func requestPermissions() async -> Bool {
-        // Speech permission
         let speechOK = await withCheckedContinuation { cont in
             SFSpeechRecognizer.requestAuthorization { status in
                 cont.resume(returning: status == .authorized)
             }
         }
 
-        // Microphone permission
         let micOK = await withCheckedContinuation { cont in
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
                 cont.resume(returning: granted)
@@ -51,14 +51,13 @@ final class SpeechCommandListener: ObservableObject {
         guard !isListening else { return }
         lastError = nil
         transcript = ""
+        // Reset so onChange fires even if the user says the same thing
+        finalTranscript = ""
 
         guard let recognizer, recognizer.isAvailable else {
             lastError = "Speech Recognizer ist gerade nicht verfügbar."
             return
         }
-
-        // Alte Session beenden
-        stopListening()
 
         do {
             let session = AVAudioSession.sharedInstance()
@@ -95,6 +94,7 @@ final class SpeechCommandListener: ObservableObject {
         }
 
         isListening = true
+        print("[SpeechListener] Listening gestartet für \(seconds)s")
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
@@ -102,44 +102,81 @@ final class SpeechCommandListener: ObservableObject {
             if let result {
                 Task { @MainActor in
                     self.transcript = result.bestTranscription.formattedString
+                    print("[SpeechListener] Partial: \(self.transcript)")
+
+                    // Wenn das Ergebnis final ist, sofort publishen
+                    if result.isFinal {
+                        print("[SpeechListener] Final result erhalten")
+                        self.publishAndStop()
+                    }
                 }
             }
 
             if let error {
                 Task { @MainActor in
-                    self.lastError = "Speech Fehler: \(error.localizedDescription)"
-                    self.stopListening()
+                    // Cancelled-Fehler ignorieren (kommt beim normalen Stoppen)
+                    let nsError = error as NSError
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                        // "Retry" error – normal bei kurzen Aufnahmen
+                        print("[SpeechListener] Recognition retry error – ignoriert")
+                    } else if nsError.code != 1 { // code 1 = cancelled
+                        print("[SpeechListener] Error: \(error.localizedDescription)")
+                        self.lastError = error.localizedDescription
+                    }
+                    self.publishAndStop()
                 }
             }
         }
 
-        // Auto-Stop nach X Sekunden
-        Task { @MainActor in
+        // Auto-Stop nach X Sekunden: Audio beenden, aber Task laufen lassen
+        stopTimer = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            self.stopListening()
+            guard self.isListening else { return }
+            print("[SpeechListener] Timer abgelaufen – beende Audio")
+
+            // Audio-Input stoppen
+            if self.audioEngine.isRunning {
+                self.audioEngine.stop()
+                self.audioEngine.inputNode.removeTap(onBus: 0)
+            }
+            self.request?.endAudio()
+
+            // Warte kurz auf finales Ergebnis, dann force-stop
+            self.finalResultTimer = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5s Gnadenfrist
+                guard self.isListening else { return }
+                print("[SpeechListener] Kein finales Ergebnis – force publish")
+                self.publishAndStop()
+            }
         }
     }
 
-    func stopListening() {
+    /// Publishes the transcript and cleans up
+    private func publishAndStop() {
         guard isListening else { return }
+
+        stopTimer?.cancel()
+        finalResultTimer?.cancel()
+
+        task?.cancel()
+        task = nil
+        request = nil
 
         if audioEngine.isRunning {
             audioEngine.stop()
             audioEngine.inputNode.removeTap(onBus: 0)
         }
 
-        request?.endAudio()
-        request = nil
-
-        task?.cancel()
-        task = nil
-
         isListening = false
 
-        // Publish the final transcript so observers can react
         let captured = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        print("[SpeechListener] Publishing transcript: '\(captured)'")
+
         if !captured.isEmpty {
             finalTranscript = captured
+        } else {
+            // Kein Text erkannt – User informieren
+            finalTranscript = "__EMPTY__"
         }
 
         do {
@@ -147,5 +184,9 @@ final class SpeechCommandListener: ObservableObject {
         } catch {
             // nicht kritisch
         }
+    }
+
+    func stopListening() {
+        publishAndStop()
     }
 }
